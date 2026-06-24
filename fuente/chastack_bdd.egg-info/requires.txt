@@ -1,3 +1,0 @@
-sobrecargar
-solteron
-mysql-connector-python<9.2.1,>=8.2.0
