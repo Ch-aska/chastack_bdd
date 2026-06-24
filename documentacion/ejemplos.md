@@ -64,6 +64,50 @@ for c in clientes:
         print(f"{columna}: {valor}")
 ```
 
+### Consultas con IN y expresiones SET
+
+`TipoCondicion.EN` genera una cláusula `WHERE ... IN (...)`. El valor debe ser un iterable:
+
+```python
+from chastack_bdd import TipoCondicion
+
+ids = [1, 2, 3, 5, 8]
+clientes = bdd.SELECT("Cliente", ["id", "nombre", "email"]) \
+    .WHERE(TipoCondicion.EN, id=ids) \
+    .ejecutar() \
+    .devolverResultados()
+```
+
+Se puede combinar con otras condiciones encadenando `.WHERE()`:
+
+```python
+resultados = bdd.SELECT("Producto", ["id", "nombre", "stock"]) \
+    .WHERE(categoria_id=7) \
+    .WHERE(TipoCondicion.EN, estado=["disponible", "reservado"]) \
+    .WHERE(TipoCondicion.MAYOR, stock=0) \
+    .ejecutar() \
+    .devolverResultados()
+```
+
+`ExprSQL` permite incluir expresiones SQL en cláusulas `SET` de `UPDATE` sin que sean escapadas:
+
+```python
+from chastack_bdd import ExprSQL
+
+# Incremento atómico
+bdd.UPDATE("Producto", visitas=ExprSQL("visitas + 1")) \
+   .WHERE(id=42) \
+   .ejecutar()
+
+# Función SQL
+bdd.UPDATE("Inventario", stock=ExprSQL("GREATEST(0, stock - 1)")) \
+   .WHERE(TipoCondicion.EN, producto_id=[10, 11, 12]) \
+   .ejecutar()
+```
+
+> [!WARNING]
+> `ExprSQL` no aplica ningún escape. Usar solo con literales definidos en el código, nunca con datos del usuario.
+
 ---
 
 ## Modelos de usuario con autenticación
