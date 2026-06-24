@@ -19,6 +19,7 @@ class TipoCondicion(EnumSQL):
     MENOR_O_IGUAL = '<='
     ES = 'IS'
     NO_ES = 'IS NOT'
+    EN = 'IN'
 
 class TipoUnion(EnumSQL):
     INNER = 1

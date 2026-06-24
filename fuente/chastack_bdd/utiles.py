@@ -41,6 +41,11 @@ def tipoSQLDesdePython(tipo_python: type) -> str:
 
     return tipos.get(tipo_python, 'text')
 
+class ExprSQL(str):
+    """Expresión SQL cruda que se interpola sin escapar ni entrecomillar."""
+    pass
+
+
 def _escaparParaMySQL(texto: str) -> str:
     """Escapa caracteres especiales para SQL concatenado en MySQL.
 
@@ -72,6 +77,8 @@ def formatearValorParaSQL(valor: Any, html : bool = False, parecido : bool = Fal
     """
     prefijo = sufijo = "%" if parecido else ""
     infijo = "%" if parecido else " "
+    if isinstance(valor, ExprSQL):
+        return str(valor)
     if valor is None:
         return "NULL"
     if isinstance(valor, bool):
