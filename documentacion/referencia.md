@@ -58,7 +58,43 @@ Este documento detalla la interfaz pública y privada de las principales clases 
 
 ---
 
+## Tipos y enumeraciones (`tipos`)
+
+### `TipoCondicion`
+
+Enumeración de operadores de condición para usar en `WHERE()`.
+
+| Valor | SQL generado | Uso |
+|---|---|---|
+| `TipoCondicion.IGUAL` | `=` | Igualdad (por defecto) |
+| `TipoCondicion.DIFERENTE` | `!=` | Desigualdad |
+| `TipoCondicion.PARECIDO` | `LIKE` | Coincidencia parcial con `%` |
+| `TipoCondicion.MAYOR` | `>` | Mayor que |
+| `TipoCondicion.MENOR` | `<` | Menor que |
+| `TipoCondicion.MAYOR_O_IGUAL` | `>=` | Mayor o igual |
+| `TipoCondicion.MENOR_O_IGUAL` | `<=` | Menor o igual |
+| `TipoCondicion.ES` | `IS` | IS NULL / IS TRUE |
+| `TipoCondicion.NO_ES` | `IS NOT` | IS NOT NULL |
+| `TipoCondicion.EN` | `IN` | Pertenencia a lista — el valor debe ser un iterable |
+
+---
+
 ## Utilidades (`utiles`)
+
+### `ExprSQL(str)`
+
+Subclase de `str` que marca una cadena como expresión SQL cruda. `formatearValorParaSQL` la interpola sin escapar ni entrecomillar, lo que permite usar expresiones en cláusulas `SET` de `UPDATE`:
+
+```python
+# SET Fragmento.refcount = refcount + 1
+conn.UPDATE("Fragmento", refcount=ExprSQL("refcount + 1"))
+
+# SET Fragmento.refcount = GREATEST(0, refcount - 1)
+conn.UPDATE("Fragmento", refcount=ExprSQL("GREATEST(0, refcount - 1)"))
+```
+
+> [!WARNING]
+> `ExprSQL` no aplica ningún escape. Nunca construir una `ExprSQL` con datos provenientes del usuario — solo con literales definidos en el código.
 
 ### `_escaparParaMySQL(texto: str) -> str`
 
@@ -78,7 +114,7 @@ Escapa caracteres especiales para SQL concatenado en MySQL. MySQL interpreta bac
 
 ### `formatearValorParaSQL(valor: Any, html: bool = False, parecido: bool = False) -> str`
 
-Formatea un valor de Python a una representación adecuada para SQL. Utiliza `_escaparParaMySQL` internamente para sanitizar valores de tipo `str`, `dict` y el fallback `str(valor)`.
+Formatea un valor de Python a una representación adecuada para SQL. Utiliza `_escaparParaMySQL` internamente para sanitizar valores de tipo `str`, `dict` y el fallback `str(valor)`. Los valores de tipo `ExprSQL` se devuelven sin modificar.
 
 ### `tipoSQLDesdePython(tipo_python: type) -> str`
 
