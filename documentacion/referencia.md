@@ -98,7 +98,7 @@ conn.UPDATE("Fragmento", refcount=ExprSQL("GREATEST(0, refcount - 1)"))
 
 ### `configurar_auditoria(tabla: str = 'EventoAuditoria') -> None`
 
-Activa el registro de auditoría de mutaciones. Debe llamarse **una sola vez** al iniciar la aplicación. A partir de ese momento, toda instrucción INSERT, UPDATE o DELETE ejecutada a través del ORM queda registrada en la tabla indicada. Si no se llama, no se registra nada.
+Activa el registro de auditoría de operaciones SQL. Debe llamarse **una sola vez** al iniciar la aplicación. A partir de ese momento, toda instrucción SQL ejecutada a través del ORM queda registrada en la tabla indicada — tanto el builder fluido (`ejecutar()`) como el path de SQL crudo (`ejecutar(str)`). Si no se llama, no se registra nada.
 
 ```python
 import chastack_bdd as chbdd
@@ -109,7 +109,7 @@ chbdd.configurar_auditoria("AuditLog", trazar_lecturas=True)
 
 `trazar_lecturas` es `False` por defecto — en sistemas con alta frecuencia de lecturas el volumen puede ser muy alto.
 
-La tabla destino debe existir con al menos las columnas `tabla VARCHAR`, `operacion ENUM('INSERT','UPDATE','DELETE','SELECT')` y `consulta TEXT`.
+La tabla destino debe existir con al menos las columnas `tabla VARCHAR` (nullable), `operacion VARCHAR(20) NOT NULL` y `consulta TEXT`.
 
 > [!NOTE]
 > La auditoría es **best-effort**: si la escritura del registro falla (p.ej. tabla inexistente), se loguea un warning y la operación original ya confirmada no se revierte.
