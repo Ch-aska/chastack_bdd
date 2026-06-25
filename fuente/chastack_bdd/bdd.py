@@ -2,6 +2,9 @@ from chastack_bdd.tipos import *
 from chastack_bdd.errores import *
 from chastack_bdd.utiles import *
 from mysql.connector import connect
+import logging
+
+logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class ProtocoloBaseDeDatos(Protocol):
@@ -200,6 +203,11 @@ class Consulta():
         if self.__limite : raise ErrorMalaSintaxisSQL("La clausula LIMIT ya ha sido definida.")
         self.__limite  =  'LIMIT ' + str(desplazamiento) + ', ' + str(limite) + '\n'
         return self
+
+    @property
+    def tabla(self) -> str:
+        return self.__tabla_principal
+
     def __FROM(self, tabla : str):
         self.__parametros_principales += 'FROM ' + tabla + '\n'
         return self
@@ -237,6 +245,23 @@ class Consulta():
         
         return self.__instruccionPrincipal.construirConsulta(self.__parametros_principales, self.__condicion, self.__union, self.__orden, self.__limite)
         
+
+
+def _intentar_auditar(bdd: 'BaseDeDatos_MySQL', sql: str, tabla: str) -> None:
+    import chastack_bdd.auditoria as _auditoria
+    if _auditoria._tabla_auditoria is None:
+        return
+    primer_token = sql.split('\n', 1)[0].strip()
+    if primer_token not in ('INSERT', 'UPDATE', 'DELETE'):
+        return
+    try:
+        audit_sql = (
+            f"INSERT INTO {_auditoria._tabla_auditoria} (tabla, operacion, consulta) "
+            f"VALUES ({formatearValorParaSQL(tabla)}, {formatearValorParaSQL(primer_token)}, {formatearValorParaSQL(sql)})"
+        )
+        bdd.ejecutar(audit_sql)
+    except Exception as exc:
+        logger.warning("Auditoría: no se pudo registrar evento en '%s': %s", tabla, exc)
 
 
 class ConfigMySQL(metaclass=Solteron):
@@ -361,25 +386,28 @@ class BaseDeDatos_MySQL():
 
     @sobrecargar
     def ejecutar(self) -> Optional[list[Resultado]] :
-
         try:
-            self.__cursor.execute(str(self.__consulta))
-            self.__conexion.commit()
-        except ErrorBDD as e:
-            ###print(f"[ERROR] {e}")
-            self.reconectar()
-            self.__cursor.execute(str(self.__consulta))
-            self.__conexion.commit()
-        except AttributeError as e:
-            ###print(f"[ERROR] {e}")
-            self = BaseDeDatos_MySQL(self.__config)
-            self.conectar()
-            self.__cursor.execute(str(self.__consulta))
-            self.__conexion.commit()
-        except Exception as f:
-            raise type(f)(f"No se pudo completar la consulta.\n Es probable que la consulta incluya carácteres prohibidos. \n {str(self.__consulta).encode('utf-8').decode('unicode_escape')}\n") from f
+            sql = str(self.__consulta)
+            tabla = self.__consulta.tabla
+            try:
+                self.__cursor.execute(sql)
+                self.__conexion.commit()
+            except ErrorBDD as e:
+                ###print(f"[ERROR] {e}")
+                self.reconectar()
+                self.__cursor.execute(sql)
+                self.__conexion.commit()
+            except AttributeError as e:
+                ###print(f"[ERROR] {e}")
+                self = BaseDeDatos_MySQL(self.__config)
+                self.conectar()
+                self.__cursor.execute(sql)
+                self.__conexion.commit()
+            except Exception as f:
+                raise type(f)(f"No se pudo completar la consulta.\n Es probable que la consulta incluya carácteres prohibidos. \n {sql.encode('utf-8').decode('unicode_escape')}\n") from f
         finally:
             self.__consulta.reiniciar()
+        _intentar_auditar(self, sql, tabla)
         return self
    
     def devolverIdUltimaInsercion(self : Self) -> Optional[int]:

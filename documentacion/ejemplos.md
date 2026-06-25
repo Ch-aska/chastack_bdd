@@ -213,4 +213,30 @@ procesar_registro(cliente)
 ---
 
 > [!NOTE]      
-> Cualquier clase que herede de `Registro` permite iterar sobre sus columnas y valores con `for columna, valor in un_registro:`. Para usuarios, siempre se debe heredar de `Usuario` y no instanciarlo directamente. 
+> Cualquier clase que herede de `Registro` permite iterar sobre sus columnas y valores con `for columna, valor in un_registro:`. Para usuarios, siempre se debe heredar de `Usuario` y no instanciarlo directamente.
+
+---
+
+## Auditoría de mutaciones
+
+Una sola llamada al inicio activa el log de toda mutación INSERT/UPDATE/DELETE:
+
+```python
+import chastack_bdd as chbdd
+chbdd.configurar_auditoria()
+```
+
+La tabla `EventoAuditoria` debe existir:
+
+```sql
+CREATE TABLE EventoAuditoria (
+    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    fecha_carga DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    tabla       VARCHAR(64) NOT NULL,
+    operacion   ENUM('INSERT','UPDATE','DELETE') NOT NULL,
+    consulta    TEXT NOT NULL,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+A partir de esa llamada, cada mutación ejecutada a través del ORM genera automáticamente un registro en `EventoAuditoria`. No se requiere ninguna acción adicional en los callsites. 
