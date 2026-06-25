@@ -1,9 +1,11 @@
 import unittest
-from chastack_bdd.bdd import ConfigMySQL, BaseDeDatos_MySQL
+from chastack_bdd.bdd import ConfigMySQL, BaseDeDatos_MySQL, _extraer_tabla
 from chastack_bdd.tabla import Tabla, TablaIntermedia
 from chastack_bdd.usuario import Usuario
 from chastack_bdd.tipos import TipoOrden
 from chastack_bdd.utiles import _escaparParaMySQL, formatearValorParaSQL
+from chastack_bdd import configurar_auditoria
+import chastack_bdd.auditoria as _auditoria_mod
 from datetime import datetime, date, time
 from decimal import Decimal
 from sobrecargar import sobrecargar
@@ -177,6 +179,28 @@ def crearYPoblarTablas():
         ##         UNIQUE KEY(administrador_permiso) (id_administrador, id_permiso)
         ##     );
         ## """)
+
+        # Tabla para pruebas de auditoría (no usada por otros test cases)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS RegistroSimple (
+                id INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
+                fecha_carga TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                fecha_modificacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                valor VARCHAR(100) NOT NULL
+            );
+        """)
+
+        # Tabla de auditoría
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS EventoAuditoria (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                fecha_carga DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                tabla VARCHAR(64),
+                operacion VARCHAR(20) NOT NULL,
+                consulta TEXT NOT NULL,
+                PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """)
 
         conn.commit()
         #print("Todas las tablas se han creado correctamente.")
@@ -570,6 +594,208 @@ class PruebaFormatearValorParaSQL(unittest.TestCase):
         self.assertNotIn("\r", interior)
         self.assertNotIn("\0", interior)
         self.assertNotIn("\t", interior)
+
+class PruebaExtraerTabla(unittest.TestCase):
+    """Pruebas unitarias para _extraer_tabla (sin base de datos)."""
+
+    def test_insert_builder(self):
+        sql = "INSERT\nINTO Fragmento\nSET Fragmento.hash = 'abc'\n;"
+        self.assertEqual(_extraer_tabla(sql), 'Fragmento')
+
+    def test_insert_raw(self):
+        self.assertEqual(_extraer_tabla("INSERT INTO Cliente (nombre) VALUES ('Ana')"), 'Cliente')
+
+    def test_replace_into(self):
+        self.assertEqual(_extraer_tabla("REPLACE INTO Tabla (id) VALUES (1)"), 'Tabla')
+
+    def test_update_builder(self):
+        sql = "UPDATE\nFragmento\nSET Fragmento.refcount = refcount + 1\n;"
+        self.assertEqual(_extraer_tabla(sql), 'Fragmento')
+
+    def test_update_raw(self):
+        self.assertEqual(_extraer_tabla("UPDATE Cliente SET nombre = 'X' WHERE id = 1"), 'Cliente')
+
+    def test_delete_builder(self):
+        sql = "DELETE\nFROM Instantanea\nWHERE Instantanea.id IS NOT NULL\n;"
+        self.assertEqual(_extraer_tabla(sql), 'Instantanea')
+
+    def test_delete_raw(self):
+        self.assertEqual(_extraer_tabla("DELETE FROM Nota WHERE id = 5"), 'Nota')
+
+    def test_select_builder(self):
+        sql = "SELECT\nFragmento.hash, Fragmento.tamano\nFROM Fragmento\nWHERE Fragmento.id IS NOT NULL\n;"
+        self.assertEqual(_extraer_tabla(sql), 'Fragmento')
+
+    def test_select_raw(self):
+        self.assertEqual(_extraer_tabla("SELECT id, nombre FROM Cliente WHERE id = 1"), 'Cliente')
+
+    def test_truncate(self):
+        self.assertEqual(_extraer_tabla("TRUNCATE TABLE EventoAuditoria"), 'EventoAuditoria')
+
+    def test_alter_table(self):
+        self.assertEqual(_extraer_tabla("ALTER TABLE Fragmento ADD COLUMN foo INT"), 'Fragmento')
+
+    def test_drop_table(self):
+        self.assertEqual(_extraer_tabla("DROP TABLE Foo"), 'Foo')
+
+    def test_drop_table_if_exists(self):
+        self.assertEqual(_extraer_tabla("DROP TABLE IF EXISTS Foo"), 'Foo')
+
+    def test_create_table_if_not_exists(self):
+        self.assertEqual(_extraer_tabla("CREATE TABLE IF NOT EXISTS Bar (id INT)"), 'Bar')
+
+    def test_sql_vacio(self):
+        self.assertIsNone(_extraer_tabla(""))
+
+    def test_verbo_desconocido(self):
+        self.assertIsNone(_extraer_tabla("CALL procedimiento()"))
+
+
+class PruebaConfigurarAuditoria(unittest.TestCase):
+    """Pruebas unitarias para configurar_auditoria (sin base de datos)."""
+
+    def setUp(self):
+        self._tabla_orig = _auditoria_mod._tabla_auditoria
+        self._lecturas_orig = _auditoria_mod._trazar_lecturas
+
+    def tearDown(self):
+        _auditoria_mod._tabla_auditoria = self._tabla_orig
+        _auditoria_mod._trazar_lecturas = self._lecturas_orig
+
+    def test_desactivado_por_defecto(self):
+        _auditoria_mod._tabla_auditoria = None
+        self.assertIsNone(_auditoria_mod._tabla_auditoria)
+
+    def test_activa_tabla_default(self):
+        configurar_auditoria()
+        self.assertEqual(_auditoria_mod._tabla_auditoria, 'EventoAuditoria')
+
+    def test_activa_tabla_personalizada(self):
+        configurar_auditoria('MiLog')
+        self.assertEqual(_auditoria_mod._tabla_auditoria, 'MiLog')
+
+    def test_trazar_lecturas_default_false(self):
+        configurar_auditoria()
+        self.assertFalse(_auditoria_mod._trazar_lecturas)
+
+    def test_trazar_lecturas_true(self):
+        configurar_auditoria(trazar_lecturas=True)
+        self.assertTrue(_auditoria_mod._trazar_lecturas)
+
+    def test_trazar_lecturas_es_kwonly(self):
+        with self.assertRaises(TypeError):
+            configurar_auditoria('TablaX', True)
+
+
+class PruebaAuditoria(unittest.TestCase):
+    """Pruebas de integración para el hook de auditoría (requiere base de datos)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bdd = BaseDeDatos_MySQL(CONFIG_BDD_PRUEBAS)
+
+    def setUp(self):
+        self._tabla_orig = _auditoria_mod._tabla_auditoria
+        self._lecturas_orig = _auditoria_mod._trazar_lecturas
+        _auditoria_mod._tabla_auditoria = None  # desactivar durante la limpieza
+        with self.bdd:
+            self.bdd.ejecutar("DELETE FROM EventoAuditoria")
+            self.bdd.ejecutar("DELETE FROM RegistroSimple")
+        configurar_auditoria('EventoAuditoria')
+
+    def tearDown(self):
+        _auditoria_mod._tabla_auditoria = self._tabla_orig
+        _auditoria_mod._trazar_lecturas = self._lecturas_orig
+
+    def _contar_auditorias(self, operacion=None, tabla=None):
+        conditions = []
+        if operacion:
+            conditions.append(f"operacion = '{operacion}'")
+        if tabla:
+            conditions.append(f"tabla = '{tabla}'")
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+        conn = mysql.connector.connect(
+            host=MYSQL_HOST, user="usuario_de_prueba",
+            password="pRU3b4s!1?2@3$4", database="chastack_bdd_pruebas"
+        )
+        try:
+            cur = conn.cursor(dictionary=True)
+            cur.execute(f"SELECT COUNT(*) as n FROM EventoAuditoria{where}")
+            result = cur.fetchone()
+            return result['n'] if result else 0
+        finally:
+            cur.close()
+            conn.close()
+
+    def test_insert_genera_registro(self):
+        with self.bdd:
+            self.bdd.INSERT('RegistroSimple', valor='test_insert').ejecutar()
+        self.assertEqual(self._contar_auditorias('INSERT', 'RegistroSimple'), 1)
+
+    def test_update_genera_registro(self):
+        with self.bdd:
+            self.bdd.INSERT('RegistroSimple', valor='para_update').ejecutar()
+            self.bdd.UPDATE('RegistroSimple', valor='actualizado').WHERE(valor='para_update').ejecutar()
+        self.assertEqual(self._contar_auditorias('UPDATE', 'RegistroSimple'), 1)
+
+    def test_delete_genera_registro(self):
+        with self.bdd:
+            self.bdd.INSERT('RegistroSimple', valor='para_delete').ejecutar()
+            self.bdd.DELETE('RegistroSimple').WHERE(valor='para_delete').ejecutar()
+        self.assertEqual(self._contar_auditorias('DELETE', 'RegistroSimple'), 1)
+
+    def test_select_no_auditado_por_defecto(self):
+        with self.bdd:
+            self.bdd.SELECT('RegistroSimple', ['id', 'valor']).ejecutar()
+        self.assertEqual(self._contar_auditorias('SELECT', 'RegistroSimple'), 0)
+
+    def test_select_auditado_con_trazar_lecturas(self):
+        configurar_auditoria(trazar_lecturas=True)
+        with self.bdd:
+            self.bdd.SELECT('RegistroSimple', ['id', 'valor']).ejecutar()
+        self.assertEqual(self._contar_auditorias('SELECT', 'RegistroSimple'), 1)
+
+    def test_describe_no_auditado(self):
+        configurar_auditoria(trazar_lecturas=True)
+        with self.bdd:
+            self.bdd.DESCRIBE('RegistroSimple').ejecutar()
+        self.assertEqual(self._contar_auditorias(), 0)
+
+    def test_sin_configurar_no_audita(self):
+        _auditoria_mod._tabla_auditoria = None
+        with self.bdd:
+            self.bdd.INSERT('RegistroSimple', valor='sin_audit').ejecutar()
+        self.assertEqual(self._contar_auditorias(), 0)
+
+    def test_ejecutar_str_genera_registro(self):
+        with self.bdd:
+            self.bdd.ejecutar("INSERT INTO RegistroSimple (valor) VALUES ('raw_sql')")
+        self.assertEqual(self._contar_auditorias('INSERT', 'RegistroSimple'), 1)
+
+    def test_sin_recursion(self):
+        with self.bdd:
+            self.bdd.INSERT('RegistroSimple', valor='recursion_guard').ejecutar()
+        self.assertEqual(self._contar_auditorias('INSERT'), 1)
+
+    def test_registro_contiene_tabla_y_operacion(self):
+        with self.bdd:
+            self.bdd.INSERT('RegistroSimple', valor='contenido').ejecutar()
+        conn = mysql.connector.connect(
+            host=MYSQL_HOST, user="usuario_de_prueba",
+            password="pRU3b4s!1?2@3$4", database="chastack_bdd_pruebas"
+        )
+        try:
+            cur = conn.cursor(dictionary=True)
+            cur.execute("SELECT tabla, operacion, consulta FROM EventoAuditoria ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row['tabla'], 'RegistroSimple')
+            self.assertEqual(row['operacion'], 'INSERT')
+            self.assertIn('RegistroSimple', row['consulta'])
+        finally:
+            cur.close()
+            conn.close()
+
 
 # REFACTORIZAR: (Hernán) Segregar pruebas en submódulos.
 if __name__ == "__main__":
