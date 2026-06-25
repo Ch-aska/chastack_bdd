@@ -102,11 +102,14 @@ Activa el registro de auditoría de mutaciones. Debe llamarse **una sola vez** a
 
 ```python
 import chastack_bdd as chbdd
-chbdd.configurar_auditoria()              # usa 'EventoAuditoria' por defecto
-chbdd.configurar_auditoria("AuditLog")   # nombre de tabla personalizado
+chbdd.configurar_auditoria()                              # solo mutaciones (por defecto)
+chbdd.configurar_auditoria(trazar_lecturas=True)          # también SELECT
+chbdd.configurar_auditoria("AuditLog", trazar_lecturas=True)
 ```
 
-La tabla destino debe existir con al menos las columnas `tabla VARCHAR`, `operacion ENUM('INSERT','UPDATE','DELETE')` y `consulta TEXT`.
+`trazar_lecturas` es `False` por defecto — en sistemas con alta frecuencia de lecturas el volumen puede ser muy alto.
+
+La tabla destino debe existir con al menos las columnas `tabla VARCHAR`, `operacion ENUM('INSERT','UPDATE','DELETE','SELECT')` y `consulta TEXT`.
 
 > [!NOTE]
 > La auditoría es **best-effort**: si la escritura del registro falla (p.ej. tabla inexistente), se loguea un warning y la operación original ya confirmada no se revierte.
