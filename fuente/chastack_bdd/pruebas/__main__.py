@@ -195,7 +195,7 @@ def crearYPoblarTablas():
             CREATE TABLE IF NOT EXISTS EventoAuditoria (
                 id INT UNSIGNED NOT NULL AUTO_INCREMENT,
                 fecha_carga DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                tabla VARCHAR(64),
+                tabla_objetivo VARCHAR(64),
                 operacion VARCHAR(20) NOT NULL,
                 consulta TEXT NOT NULL,
                 PRIMARY KEY (id)
@@ -707,12 +707,12 @@ class PruebaAuditoria(unittest.TestCase):
         _auditoria_mod._tabla_auditoria = self._tabla_orig
         _auditoria_mod._trazar_lecturas = self._lecturas_orig
 
-    def _contar_auditorias(self, operacion=None, tabla=None):
+    def _contar_auditorias(self, operacion=None, tabla_objetivo=None):
         conditions = []
         if operacion:
             conditions.append(f"operacion = '{operacion}'")
-        if tabla:
-            conditions.append(f"tabla = '{tabla}'")
+        if tabla_objetivo:
+            conditions.append(f"tabla_objetivo = '{tabla_objetivo}'")
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
         conn = mysql.connector.connect(
             host=MYSQL_HOST, user="usuario_de_prueba",
@@ -777,7 +777,7 @@ class PruebaAuditoria(unittest.TestCase):
             self.bdd.INSERT('RegistroSimple', valor='recursion_guard').ejecutar()
         self.assertEqual(self._contar_auditorias('INSERT'), 1)
 
-    def test_registro_contiene_tabla_y_operacion(self):
+    def test_registro_contiene_tabla_objetivo_y_operacion(self):
         with self.bdd:
             self.bdd.INSERT('RegistroSimple', valor='contenido').ejecutar()
         conn = mysql.connector.connect(
@@ -786,10 +786,10 @@ class PruebaAuditoria(unittest.TestCase):
         )
         try:
             cur = conn.cursor(dictionary=True)
-            cur.execute("SELECT tabla, operacion, consulta FROM EventoAuditoria ORDER BY id DESC LIMIT 1")
+            cur.execute("SELECT tabla_objetivo, operacion, consulta FROM EventoAuditoria ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
             self.assertIsNotNone(row)
-            self.assertEqual(row['tabla'], 'RegistroSimple')
+            self.assertEqual(row['tabla_objetivo'], 'RegistroSimple')
             self.assertEqual(row['operacion'], 'INSERT')
             self.assertIn('RegistroSimple', row['consulta'])
         finally:

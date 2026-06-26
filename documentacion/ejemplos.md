@@ -233,13 +233,13 @@ Cubre tanto el builder fluido como el path de SQL crudo (`ejecutar(str)`). La ta
 CREATE TABLE EventoAuditoria (
     id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
     fecha_carga DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    tabla       VARCHAR(64),
+    tabla_objetivo VARCHAR(64),
     operacion   VARCHAR(20) NOT NULL,
     consulta    TEXT NOT NULL,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
-`tabla` es nullable — para SQL crudo donde el nombre de tabla no siempre se puede determinar. `operacion` es `VARCHAR(20)` en lugar de ENUM para cubrir cualquier verbo SQL (`TRUNCATE`, `ALTER`, etc.).
+`tabla_objetivo` es nullable — para SQL crudo donde el nombre de tabla no siempre se puede determinar. `operacion` es `VARCHAR(20)` en lugar de ENUM para cubrir cualquier verbo SQL (`TRUNCATE`, `ALTER`, etc.).
 
 A partir de esa llamada, cada operación ejecutada a través del ORM genera automáticamente un registro en `EventoAuditoria`. No se requiere ninguna acción adicional en los callsites.

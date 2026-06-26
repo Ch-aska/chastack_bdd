@@ -273,7 +273,7 @@ def _extraer_tabla(sql: str) -> str | None:
     return None
 
 
-def _intentar_auditar(bdd: 'BaseDeDatos_MySQL', sql: str, tabla: str | None = None) -> None:
+def _intentar_auditar(bdd: 'BaseDeDatos_MySQL', sql: str, tabla_objetivo: str | None = None) -> None:
     import chastack_bdd.auditoria as _auditoria
     if _auditoria._auditando.get():
         return
@@ -284,17 +284,17 @@ def _intentar_auditar(bdd: 'BaseDeDatos_MySQL', sql: str, tabla: str | None = No
     es_lectura = primer_token == 'SELECT'
     if not es_mutacion and not (es_lectura and _auditoria._trazar_lecturas):
         return
-    if tabla is None:
-        tabla = _extraer_tabla(sql)
+    if tabla_objetivo is None:
+        tabla_objetivo = _extraer_tabla(sql)
     token = _auditoria._auditando.set(True)
     try:
         audit_sql = (
-            f"INSERT INTO {_auditoria._tabla_auditoria} (tabla, operacion, consulta) "
-            f"VALUES ({formatearValorParaSQL(tabla)}, {formatearValorParaSQL(primer_token)}, {formatearValorParaSQL(sql)})"
+            f"INSERT INTO {_auditoria._tabla_auditoria} (tabla_objetivo, operacion, consulta) "
+            f"VALUES ({formatearValorParaSQL(tabla_objetivo)}, {formatearValorParaSQL(primer_token)}, {formatearValorParaSQL(sql)})"
         )
         bdd.ejecutar(audit_sql)
     except Exception as exc:
-        logger.warning("Auditoría: no se pudo registrar evento en '%s': %s", tabla or '?', exc)
+        logger.warning("Auditoría: no se pudo registrar evento en '%s': %s", tabla_objetivo or '?', exc)
     finally:
         _auditoria._auditando.reset(token)
 
@@ -424,7 +424,7 @@ class BaseDeDatos_MySQL():
     def ejecutar(self) -> Optional[list[Resultado]] :
         try:
             sql = str(self.__consulta)
-            tabla = self.__consulta.tabla
+            tabla_objetivo = self.__consulta.tabla
             try:
                 self.__cursor.execute(sql)
                 self.__conexion.commit()
@@ -443,7 +443,7 @@ class BaseDeDatos_MySQL():
                 raise type(f)(f"No se pudo completar la consulta.\n Es probable que la consulta incluya carácteres prohibidos. \n {sql.encode('utf-8').decode('unicode_escape')}\n") from f
         finally:
             self.__consulta.reiniciar()
-        _intentar_auditar(self, sql, tabla)
+        _intentar_auditar(self, sql, tabla_objetivo)
         return self
    
     def devolverIdUltimaInsercion(self : Self) -> Optional[int]:

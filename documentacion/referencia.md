@@ -109,7 +109,7 @@ chbdd.configurar_auditoria("AuditLog", trazar_lecturas=True)
 
 `trazar_lecturas` es `False` por defecto — en sistemas con alta frecuencia de lecturas el volumen puede ser muy alto.
 
-La tabla destino debe existir con al menos las columnas `tabla VARCHAR` (nullable), `operacion VARCHAR(20) NOT NULL` y `consulta TEXT`.
+La tabla destino debe existir con al menos las columnas `tabla_objetivo VARCHAR` (nullable), `operacion VARCHAR(20) NOT NULL` y `consulta TEXT`.
 
 > [!NOTE]
 > La auditoría es **best-effort**: si la escritura del registro falla (p.ej. tabla inexistente), se loguea un warning y la operación original ya confirmada no se revierte.
