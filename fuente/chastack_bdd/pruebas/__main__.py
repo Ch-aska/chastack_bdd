@@ -52,9 +52,9 @@ def crearBaseDeDatos():
             conn.close()
 def crearYPoblarTablas():
     conn = mysql.connector.connect(
-        host="localhost",
+        host=MYSQL_HOST,
         user="root",
-        password=ROOT_P,  # Reemplazar
+        password=ROOT_P,
         database="chastack_bdd_pruebas"
     )
     try:
@@ -213,7 +213,7 @@ def crearYPoblarTablas():
             conn.close()
     
     conn = mysql.connector.connect(
-        host="localhost",
+        host=MYSQL_HOST,
         user="usuario_de_prueba",
         password="pRU3b4s!1?2@3$4",
         database="chastack_bdd_pruebas"
@@ -294,9 +294,9 @@ def crearYPoblarTablas():
             conn.close()
 def destruirBaseDeDatos():
     conn = mysql.connector.connect(
-        host="localhost",
+        host=MYSQL_HOST,
         user="root",
-        password=ROOT_P  
+        password=ROOT_P
     )
     try:
         cursor = conn.cursor()
@@ -313,7 +313,7 @@ def destruirBaseDeDatos():
             conn.close()
 
 CONFIG_BDD_PRUEBAS = ConfigMySQL(
-            "localhost",
+            MYSQL_HOST,
             "usuario_de_prueba",
             "pRU3b4s!1?2@3$4",
             "chastack_bdd_pruebas",
