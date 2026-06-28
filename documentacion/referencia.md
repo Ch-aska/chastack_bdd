@@ -96,6 +96,26 @@ conn.UPDATE("Fragmento", refcount=ExprSQL("GREATEST(0, refcount - 1)"))
 > [!WARNING]
 > `ExprSQL` no aplica ningún escape. Nunca construir una `ExprSQL` con datos provenientes del usuario — solo con literales definidos en el código.
 
+### `configurar_auditoria(tabla: str = 'EventoAuditoria') -> None`
+
+Activa el registro de auditoría de operaciones SQL. Debe llamarse **una sola vez** al iniciar la aplicación. A partir de ese momento, toda instrucción SQL ejecutada a través del ORM queda registrada en la tabla indicada — tanto el builder fluido (`ejecutar()`) como el path de SQL crudo (`ejecutar(str)`). Si no se llama, no se registra nada.
+
+```python
+import chastack_bdd as chbdd
+chbdd.configurar_auditoria()                              # solo mutaciones (por defecto)
+chbdd.configurar_auditoria(trazar_lecturas=True)          # también SELECT
+chbdd.configurar_auditoria("AuditLog", trazar_lecturas=True)
+```
+
+`trazar_lecturas` es `False` por defecto — en sistemas con alta frecuencia de lecturas el volumen puede ser muy alto.
+
+La tabla destino debe existir con al menos las columnas `tabla_objetivo VARCHAR` (nullable), `operacion VARCHAR(20) NOT NULL` y `consulta TEXT`.
+
+> [!NOTE]
+> La auditoría es **best-effort**: si la escritura del registro falla (p.ej. tabla inexistente), se loguea un warning y la operación original ya confirmada no se revierte.
+
+---
+
 ### `_escaparParaMySQL(texto: str) -> str`
 
 Escapa caracteres especiales para SQL concatenado en MySQL. MySQL interpreta backslashes como caracteres de escape por defecto (a menos que esté activado `NO_BACKSLASH_ESCAPES`). Esta función escapa los caracteres que rompen queries SQL construidas por concatenación de strings.

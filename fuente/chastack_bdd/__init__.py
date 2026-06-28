@@ -19,6 +19,7 @@ from chastack_bdd.bdd import *
 from chastack_bdd.tabla import *
 from chastack_bdd.registro import *
 from chastack_bdd.usuario import *
+from chastack_bdd.auditoria import configurar_auditoria
 
 if __name__ == '__main__':
     print(__doc__)

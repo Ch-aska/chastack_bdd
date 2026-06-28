@@ -213,4 +213,33 @@ procesar_registro(cliente)
 ---
 
 > [!NOTE]      
-> Cualquier clase que herede de `Registro` permite iterar sobre sus columnas y valores con `for columna, valor in un_registro:`. Para usuarios, siempre se debe heredar de `Usuario` y no instanciarlo directamente. 
+> Cualquier clase que herede de `Registro` permite iterar sobre sus columnas y valores con `for columna, valor in un_registro:`. Para usuarios, siempre se debe heredar de `Usuario` y no instanciarlo directamente.
+
+---
+
+## Auditoría de operaciones SQL
+
+Una sola llamada al inicio activa el log de toda operación SQL que pase por el ORM:
+
+```python
+import chastack_bdd as chbdd
+chbdd.configurar_auditoria()                     # mutaciones (INSERT/UPDATE/DELETE)
+chbdd.configurar_auditoria(trazar_lecturas=True) # también SELECT
+```
+
+Cubre tanto el builder fluido como el path de SQL crudo (`ejecutar(str)`). La tabla `EventoAuditoria` debe existir:
+
+```sql
+CREATE TABLE EventoAuditoria (
+    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    fecha_carga DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    tabla_objetivo VARCHAR(64),
+    operacion   VARCHAR(20) NOT NULL,
+    consulta    TEXT NOT NULL,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+`tabla_objetivo` es nullable — para SQL crudo donde el nombre de tabla no siempre se puede determinar. `operacion` es `VARCHAR(20)` en lugar de ENUM para cubrir cualquier verbo SQL (`TRUNCATE`, `ALTER`, etc.).
+
+A partir de esa llamada, cada operación ejecutada a través del ORM genera automáticamente un registro en `EventoAuditoria`. No se requiere ninguna acción adicional en los callsites.
