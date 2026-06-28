@@ -279,7 +279,8 @@ def _intentar_auditar(bdd: 'BaseDeDatos_MySQL', sql: str, tabla_objetivo: str | 
         return
     if _auditoria._tabla_auditoria is None:
         return
-    primer_token = sql.split('\n', 1)[0].strip()
+    tokens = sql.split()
+    primer_token = tokens[0].upper() if tokens else ''
     es_mutacion = primer_token in ('INSERT', 'UPDATE', 'DELETE')
     es_lectura = primer_token == 'SELECT'
     if not es_mutacion and not (es_lectura and _auditoria._trazar_lecturas):
