@@ -58,22 +58,21 @@ jobs:
         run: |
           chmod +x correr_pruebas.sh
           ./correr_pruebas.sh "$@" \
-              > fuente/chastack_bdd/pruebas/reportes/informe.txt \
-              2> fuente/chastack_bdd/pruebas/reportes/resultado.txt
+              2> fuente/chastack_bdd/pruebas/reportes/resultado.txt \
+              || PRUEBAS_EXIT=$?
 
-          
-          resultado=$(<fuente/chastack_bdd/pruebas/reportes/resultado.txt)
-          informe=$(<fuente/chastack_bdd/pruebas/reportes/informe.txt)
+          echo "--- Salida de pruebas (stderr) ---"
+          cat fuente/chastack_bdd/pruebas/reportes/resultado.txt || true
+          echo "--- Informe de cobertura ---"
+          cat fuente/chastack_bdd/pruebas/reportes/informe.txt || true
 
-          
           tieneErrores=$(grep -E 'errors=[1-9]' fuente/chastack_bdd/pruebas/reportes/resultado.txt || true)
           tieneFallos=$(grep -E 'failures=[1-9]' fuente/chastack_bdd/pruebas/reportes/resultado.txt || true)
           todoOK=$(grep -E 'OK' fuente/chastack_bdd/pruebas/reportes/resultado.txt || true)
 
-          
           lineaTotal=$(grep -i 'TOTAL' fuente/chastack_bdd/pruebas/reportes/informe.txt || true)
           if [ -z "$lineaTotal" ]; then
-              echo "::error::No se encontró la línea TOTAL"
+              echo "::error::No se encontró la línea TOTAL en el informe de cobertura"
               exit 1
           fi
           porcentaje_total=$(echo "$lineaTotal" | awk '{print $NF}' | tr -d '% ')
@@ -83,7 +82,6 @@ jobs:
               exit 1
           fi
 
-          
           if [ -n "$tieneErrores" ] || [ "$porcentaje_total" -lt 50 ]; then
               echo "::error::Cobertura < 50% o errores en las pruebas."
               exit 1
