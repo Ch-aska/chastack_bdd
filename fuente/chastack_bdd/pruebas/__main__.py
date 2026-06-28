@@ -772,6 +772,18 @@ class PruebaAuditoria(unittest.TestCase):
             self.bdd.ejecutar("INSERT INTO RegistroSimple (valor) VALUES ('raw_sql')")
         self.assertEqual(self._contar_auditorias('INSERT', 'RegistroSimple'), 1)
 
+    def test_ejecutar_str_update_genera_registro(self):
+        with self.bdd:
+            self.bdd.INSERT('RegistroSimple', valor='para_raw_update').ejecutar()
+            self.bdd.ejecutar("UPDATE RegistroSimple SET valor = 'raw_updated' WHERE valor = 'para_raw_update'")
+        self.assertEqual(self._contar_auditorias('UPDATE', 'RegistroSimple'), 1)
+
+    def test_ejecutar_str_delete_genera_registro(self):
+        with self.bdd:
+            self.bdd.INSERT('RegistroSimple', valor='para_raw_delete').ejecutar()
+            self.bdd.ejecutar("DELETE FROM RegistroSimple WHERE valor = 'para_raw_delete'")
+        self.assertEqual(self._contar_auditorias('DELETE', 'RegistroSimple'), 1)
+
     def test_sin_recursion(self):
         with self.bdd:
             self.bdd.INSERT('RegistroSimple', valor='recursion_guard').ejecutar()
