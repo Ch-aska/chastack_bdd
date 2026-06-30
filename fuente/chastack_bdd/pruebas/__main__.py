@@ -926,6 +926,73 @@ class PruebaAuditoria(unittest.TestCase):
             conn.close()
 
 
+class PruebaTransaccion(unittest.TestCase):
+    """transaccion(): atomicidad commit/rollback, anidado y lastrowid."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bdd = BaseDeDatos_MySQL(CONFIG_BDD_PRUEBAS)
+
+    def setUp(self):
+        # Auditoría desactivada: aquí se prueba la transacción, no la auditoría.
+        self._tabla_orig = _auditoria_mod._tabla_auditoria
+        _auditoria_mod._tabla_auditoria = None
+        with self.bdd:
+            self.bdd.ejecutar("DELETE FROM RegistroSimple")
+
+    def tearDown(self):
+        _auditoria_mod._tabla_auditoria = self._tabla_orig
+
+    def _contar(self) -> int:
+        bdd = BaseDeDatos_MySQL(CONFIG_BDD_PRUEBAS)
+        with bdd as c:
+            c.SELECT("RegistroSimple", ["id"]).ejecutar()
+            filas = c.devolverResultados()
+        return len(filas or [])
+
+    def test_commit_persiste_todo(self):
+        with self.bdd.transaccion() as c:
+            c.INSERT("RegistroSimple", valor="a").ejecutar()
+            c.INSERT("RegistroSimple", valor="b").ejecutar()
+        self.assertEqual(self._contar(), 2)
+
+    def test_rollback_revierte_todo(self):
+        with self.assertRaises(RuntimeError):
+            with self.bdd.transaccion() as c:
+                c.INSERT("RegistroSimple", valor="x").ejecutar()
+                c.INSERT("RegistroSimple", valor="y").ejecutar()
+                raise RuntimeError("fallo a mitad de la transacción")
+        self.assertEqual(self._contar(), 0)   # ninguno de los dos persiste
+
+    def test_lastrowid_dentro_de_transaccion(self):
+        with self.bdd.transaccion() as c:
+            c.INSERT("RegistroSimple", valor="z").ejecutar()
+            rid = c.devolverIdUltimaInsercion()
+        self.assertIsNotNone(rid)
+        bdd = BaseDeDatos_MySQL(CONFIG_BDD_PRUEBAS)
+        with bdd as c:
+            c.SELECT("RegistroSimple", ["id"]).WHERE(valor="z").ejecutar()
+            fila = c.devolverUnResultado()
+        self.assertEqual(rid, fila["id"])
+
+    def test_anidada_participa_de_la_externa(self):
+        # La transacción interna no commitea por su cuenta: un rollback externo
+        # revierte también lo escrito dentro de la anidada.
+        with self.assertRaises(RuntimeError):
+            with self.bdd.transaccion() as c:
+                c.INSERT("RegistroSimple", valor="ext").ejecutar()
+                with c.transaccion() as c2:
+                    c2.INSERT("RegistroSimple", valor="int").ejecutar()
+                raise RuntimeError("fallo externo tras la anidada")
+        self.assertEqual(self._contar(), 0)
+
+    def test_autocommit_sin_transaccion_intacto(self):
+        # Sin transaccion(), cada ejecutar() commitea (comportamiento histórico).
+        with self.bdd:
+            self.bdd.INSERT("RegistroSimple", valor="auto").ejecutar()
+        self.assertEqual(self._contar(), 1)
+
+
 # REFACTORIZAR: (Hernán) Segregar pruebas en submódulos.
 if __name__ == "__main__":
     try:

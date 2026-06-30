@@ -2,6 +2,7 @@ from chastack_bdd.tipos import *
 from chastack_bdd.errores import *
 from chastack_bdd.utiles import *
 from mysql.connector import connect
+import contextlib
 import logging
 
 logger = logging.getLogger(__name__)
@@ -343,6 +344,7 @@ class BaseDeDatos_MySQL():
         "__cursor",
         "__consulta",
         "__id_ultima_insercion",
+        "__en_transaccion",
     )
     def __init__(self, configuracion : ConfigMySQL = None) -> None:
         self.__conexion = None
@@ -350,6 +352,7 @@ class BaseDeDatos_MySQL():
         self.configurar(configuracion)
         self.__consulta = Consulta()
         self.__id_ultima_insercion = None
+        self.__en_transaccion = False
     
     def configurar(self, configuracion : ConfigMySQL = None) -> None:
         if configuracion:
@@ -373,6 +376,49 @@ class BaseDeDatos_MySQL():
         self.desconectar()
         self.conectar()
         return self
+
+    def __commitSiCorresponde(self) -> None:
+        """Commitea la sentencia, salvo dentro de una transacción (donde el
+        commit/rollback lo decide ``transaccion()`` al cerrar el bloque)."""
+        if not self.__en_transaccion:
+            self.__conexion.commit()
+
+    @contextlib.contextmanager
+    def transaccion(self):
+        """Agrupa varias sentencias en UNA transacción atómica.
+
+        Uso:
+            with bdd.transaccion() as conn:
+                conn.INSERT(...).ejecutar()
+                conn.UPDATE(...).ejecutar()
+            # commit automático al salir sin error; rollback ante cualquier excepción.
+
+        Dentro del bloque ``ejecutar()`` NO commitea por sentencia. Anidable: una
+        ``transaccion()`` dentro de otra participa de la externa (no hay savepoints,
+        así que sólo la más externa commitea/revierte). Abre la conexión si hiciera
+        falta y la cierra al salir sólo si la abrió este context manager.
+        """
+        abrio_aqui = self.__conexion is None
+        if abrio_aqui:
+            self.conectar()
+        if self.__en_transaccion:
+            # Transacción anidada: participa de la externa; no commitea ni cierra.
+            yield self
+            return
+        self.__en_transaccion = True
+        try:
+            yield self
+            self.__conexion.commit()
+        except BaseException:
+            try:
+                self.__conexion.rollback()
+            except Exception:
+                logger.exception("Falló el rollback de la transacción")
+            raise
+        finally:
+            self.__en_transaccion = False
+            if abrio_aqui:
+                self.desconectar()
     
     def DESCRIBE(self: Self, tabla :str) -> Self:
         self.__consulta.DESCRIBE(tabla)
@@ -408,18 +454,20 @@ class BaseDeDatos_MySQL():
             consulta = str(consulta)
         try:
             self.__cursor.execute(consulta)
-            self.__conexion.commit()
+            self.__commitSiCorresponde()
         except ErrorBDD as e:
             ###print(f"[ERROR] {e}")
+            if self.__en_transaccion: raise   # reconectar abortaría la transacción
             self.reconectar()
             self.__cursor.execute(consulta)
-            self.__conexion.commit()
+            self.__commitSiCorresponde()
         except AttributeError as e:
             ###print(f"[ERROR] {e}")
+            if self.__en_transaccion: raise
             self = BaseDeDatos_MySQL()
             self.conectar()
             self.__cursor.execute(consulta)
-            self.__conexion.commit()
+            self.__commitSiCorresponde()
         except Exception as f:
             raise type(f)(f"No se pudo completar la consulta.\n Es probable que la consulta incluya carácteres prohibidos. \n {consulta.encode('utf-8').decode('unicode_escape')}\n") from f
         id_ultima_insercion = self.__cursor.lastrowid
@@ -435,18 +483,20 @@ class BaseDeDatos_MySQL():
             tabla_objetivo = self.__consulta.tabla
             try:
                 self.__cursor.execute(sql)
-                self.__conexion.commit()
+                self.__commitSiCorresponde()
             except ErrorBDD as e:
                 ###print(f"[ERROR] {e}")
+                if self.__en_transaccion: raise   # reconectar abortaría la transacción
                 self.reconectar()
                 self.__cursor.execute(sql)
-                self.__conexion.commit()
+                self.__commitSiCorresponde()
             except AttributeError as e:
                 ###print(f"[ERROR] {e}")
+                if self.__en_transaccion: raise
                 self = BaseDeDatos_MySQL(self.__config)
                 self.conectar()
                 self.__cursor.execute(sql)
-                self.__conexion.commit()
+                self.__commitSiCorresponde()
             except Exception as f:
                 raise type(f)(f"No se pudo completar la consulta.\n Es probable que la consulta incluya carácteres prohibidos. \n {sql.encode('utf-8').decode('unicode_escape')}\n") from f
             id_ultima_insercion = self.__cursor.lastrowid
