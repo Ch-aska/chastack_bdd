@@ -279,8 +279,10 @@ def _intentar_auditar(bdd: 'BaseDeDatos_MySQL', sql: str, tabla_objetivo: str | 
         return
     if _auditoria._tabla_auditoria is None:
         return
-    tokens = sql.split()
-    primer_token = tokens[0].upper() if tokens else ''
+    tokens = sql.split(None, 1)
+    if not tokens:
+        return
+    primer_token = tokens[0].upper()
     es_mutacion = primer_token in ('INSERT', 'UPDATE', 'DELETE')
     es_lectura = primer_token == 'SELECT'
     if not es_mutacion and not (es_lectura and _auditoria._trazar_lecturas):
@@ -339,13 +341,15 @@ class BaseDeDatos_MySQL():
         "__config",
         "__conexion",
         "__cursor",
-        "__consulta"
+        "__consulta",
+        "__id_ultima_insercion",
     )
     def __init__(self, configuracion : ConfigMySQL = None) -> None:
         self.__conexion = None
         self.__cursor = None
         self.configurar(configuracion)
         self.__consulta = Consulta()
+        self.__id_ultima_insercion = None
     
     def configurar(self, configuracion : ConfigMySQL = None) -> None:
         if configuracion:
@@ -418,7 +422,10 @@ class BaseDeDatos_MySQL():
             self.__conexion.commit()
         except Exception as f:
             raise type(f)(f"No se pudo completar la consulta.\n Es probable que la consulta incluya carácteres prohibidos. \n {consulta.encode('utf-8').decode('unicode_escape')}\n") from f
+        id_ultima_insercion = self.__cursor.lastrowid
+        self.__id_ultima_insercion = id_ultima_insercion
         _intentar_auditar(self, consulta)
+        self.__id_ultima_insercion = id_ultima_insercion
         return self
 
     @sobrecargar
@@ -442,13 +449,16 @@ class BaseDeDatos_MySQL():
                 self.__conexion.commit()
             except Exception as f:
                 raise type(f)(f"No se pudo completar la consulta.\n Es probable que la consulta incluya carácteres prohibidos. \n {sql.encode('utf-8').decode('unicode_escape')}\n") from f
+            id_ultima_insercion = self.__cursor.lastrowid
+            self.__id_ultima_insercion = id_ultima_insercion
         finally:
             self.__consulta.reiniciar()
         _intentar_auditar(self, sql, tabla_objetivo)
+        self.__id_ultima_insercion = id_ultima_insercion
         return self
    
     def devolverIdUltimaInsercion(self : Self) -> Optional[int]:
-        return self.__cursor.lastrowid
+        return self.__id_ultima_insercion
         
     def devolverResultados(self, cantidad : Optional[int] = None) -> Optional[List[Dict[str, Any]]]:
         resultados = self.__cursor.fetchall()

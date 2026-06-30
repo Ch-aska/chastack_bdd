@@ -319,6 +319,7 @@ CONFIG_BDD_PRUEBAS = ConfigMySQL(
             "chastack_bdd_pruebas",
         )
 
+class RegistroSimple(metaclass=Tabla): ...
 class Cliente(metaclass=Tabla):...
 
 class PruebaRegistros(unittest.TestCase):
@@ -687,6 +688,55 @@ class PruebaConfigurarAuditoria(unittest.TestCase):
             configurar_auditoria('TablaX', True)
 
 
+class PruebaLastrowidAuditoria(unittest.TestCase):
+    """Pruebas unitarias del cache de lastrowid con auditoría."""
+
+    class CursorFalso:
+        def __init__(self):
+            self.lastrowid = None
+            self.consultas = []
+
+        def execute(self, consulta):
+            self.consultas.append(consulta)
+            self.lastrowid = 900 if 'EventoAuditoria' in consulta else 123
+
+    class ConexionFalsa:
+        def commit(self):
+            pass
+
+    def setUp(self):
+        self._tabla_orig = _auditoria_mod._tabla_auditoria
+        self._lecturas_orig = _auditoria_mod._trazar_lecturas
+        configurar_auditoria('EventoAuditoria')
+
+    def tearDown(self):
+        _auditoria_mod._tabla_auditoria = self._tabla_orig
+        _auditoria_mod._trazar_lecturas = self._lecturas_orig
+
+    def _bdd_falsa(self):
+        bdd = BaseDeDatos_MySQL()
+        cursor = self.CursorFalso()
+        setattr(bdd, '_BaseDeDatos_MySQL__cursor', cursor)
+        setattr(bdd, '_BaseDeDatos_MySQL__conexion', self.ConexionFalsa())
+        return bdd, cursor
+
+    def test_ejecutar_str_preserva_lastrowid_principal(self):
+        bdd, cursor = self._bdd_falsa()
+
+        bdd.ejecutar("INSERT INTO RegistroSimple (valor) VALUES ('x')")
+
+        self.assertEqual(cursor.lastrowid, 900)
+        self.assertEqual(bdd.devolverIdUltimaInsercion(), 123)
+
+    def test_builder_preserva_lastrowid_principal(self):
+        bdd, cursor = self._bdd_falsa()
+
+        bdd.INSERT('RegistroSimple', valor='x').ejecutar()
+
+        self.assertEqual(cursor.lastrowid, 900)
+        self.assertEqual(bdd.devolverIdUltimaInsercion(), 123)
+
+
 class PruebaAuditoria(unittest.TestCase):
     """Pruebas de integración para el hook de auditoría (requiere base de datos)."""
 
@@ -726,6 +776,73 @@ class PruebaAuditoria(unittest.TestCase):
         finally:
             cur.close()
             conn.close()
+
+    def _desfasar_autoincrement_auditoria(self):
+        _auditoria_mod._tabla_auditoria = None
+        valores = ", ".join(["('semilla', 'INSERT', 'semilla')"] * 5)
+        with self.bdd:
+            self.bdd.ejecutar(
+                "INSERT INTO EventoAuditoria (tabla_objetivo, operacion, consulta) "
+                f"VALUES {valores}"
+            )
+        configurar_auditoria('EventoAuditoria')
+
+    def _id_registro_simple(self, valor):
+        conn = mysql.connector.connect(
+            host=MYSQL_HOST, user="usuario_de_prueba",
+            password="pRU3b4s!1?2@3$4", database="chastack_bdd_pruebas"
+        )
+        try:
+            cur = conn.cursor(dictionary=True)
+            cur.execute("SELECT id FROM RegistroSimple WHERE valor = %s", (valor,))
+            row = cur.fetchone()
+            return row['id'] if row else None
+        finally:
+            cur.close()
+            conn.close()
+
+    def _id_auditoria_para_valor(self, valor):
+        conn = mysql.connector.connect(
+            host=MYSQL_HOST, user="usuario_de_prueba",
+            password="pRU3b4s!1?2@3$4", database="chastack_bdd_pruebas"
+        )
+        try:
+            cur = conn.cursor(dictionary=True)
+            cur.execute(
+                "SELECT id FROM EventoAuditoria "
+                "WHERE tabla_objetivo = 'RegistroSimple' AND consulta LIKE %s "
+                "ORDER BY id DESC LIMIT 1",
+                (f"%{valor}%",)
+            )
+            row = cur.fetchone()
+            return row['id'] if row else None
+        finally:
+            cur.close()
+            conn.close()
+
+    def test_insert_preserva_lastrowid_de_consulta_principal(self):
+        self._desfasar_autoincrement_auditoria()
+        valor = f"lastrowid_builder_{datetime.now().isoformat()}"
+        with self.bdd:
+            id_devuelto = self.bdd.INSERT('RegistroSimple', valor=valor).ejecutar().devolverIdUltimaInsercion()
+
+        id_real = self._id_registro_simple(valor)
+        id_auditoria = self._id_auditoria_para_valor(valor)
+        self.assertEqual(id_devuelto, id_real)
+        self.assertNotEqual(id_devuelto, id_auditoria)
+
+    def test_guardar_preserva_id_de_registro_con_auditoria(self):
+        self._desfasar_autoincrement_auditoria()
+        valor = f"lastrowid_registro_{datetime.now().isoformat()}"
+        registro = RegistroSimple(self.bdd, {'valor': valor})
+
+        id_devuelto = registro.guardar()
+
+        id_real = self._id_registro_simple(valor)
+        id_auditoria = self._id_auditoria_para_valor(valor)
+        self.assertEqual(id_devuelto, id_real)
+        self.assertEqual(registro.id, id_real)
+        self.assertNotEqual(id_devuelto, id_auditoria)
 
     def test_insert_genera_registro(self):
         with self.bdd:
