@@ -992,6 +992,26 @@ class PruebaTransaccion(unittest.TestCase):
             self.bdd.INSERT("RegistroSimple", valor="auto").ejecutar()
         self.assertEqual(self._contar(), 1)
 
+    def test_helpers_con_with_anidado_componen(self):
+        # Patrón real de la app: funciones que internamente hacen `with bdd as conn:`
+        # deben componer dentro de transaccion() sin cerrar la conexión a mitad.
+        def insertar(bdd, valor):
+            with bdd as conn:
+                conn.INSERT("RegistroSimple", valor=valor).ejecutar()
+
+        # commit: ambos helpers participan de la misma transacción.
+        with self.bdd.transaccion() as c:
+            insertar(c, "h1")
+            insertar(c, "h2")
+        self.assertEqual(self._contar(), 2)
+
+        # rollback: un fallo tras los helpers revierte lo que escribieron.
+        with self.assertRaises(RuntimeError):
+            with self.bdd.transaccion() as c:
+                insertar(c, "h3")
+                raise RuntimeError("fallo tras helpers")
+        self.assertEqual(self._contar(), 2)   # h3 revertido
+
 
 # REFACTORIZAR: (Hernán) Segregar pruebas en submódulos.
 if __name__ == "__main__":

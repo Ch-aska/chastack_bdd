@@ -539,4 +539,9 @@ class BaseDeDatos_MySQL():
 
     def __exit__(self, exc_type,excl_val,exc_tb) -> None:
         # ###print(f"[DEBUG] Saliendo {self.__cursor=}{self.__conexion=}{self.__pool=}")
+        # Dentro de una transacción la conexión la gestiona transaccion(): no cerrar
+        # aquí, para que los `with bdd as conn:` anidados en helpers compongan sin
+        # cortar la transacción.
+        if self.__en_transaccion:
+            return
         self.desconectar()
