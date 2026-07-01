@@ -1012,6 +1012,73 @@ class PruebaTransaccion(unittest.TestCase):
                 raise RuntimeError("fallo tras helpers")
         self.assertEqual(self._contar(), 2)   # h3 revertido
 
+    def test_sobre_conexion_ya_abierta_no_la_cierra(self):
+        # transaccion() dentro de un `with bdd` no debe cerrar la conexión externa:
+        # tras la transacción, la misma conexión sigue usable.
+        with self.bdd as c:
+            with c.transaccion():
+                c.INSERT("RegistroSimple", valor="ext-open").ejecutar()
+            # conexión sigue abierta: otra sentencia funciona sin reabrir.
+            c.INSERT("RegistroSimple", valor="post-tx").ejecutar()
+            self.assertTrue(c.estaConectado())
+        self.assertEqual(self._contar(), 2)
+
+    def test_error_de_bd_a_mitad_revierte_todo(self):
+        # Un error REAL de la BD a mitad de la transacción (PK duplicada) debe
+        # abortar y revertir lo ya escrito en ella.
+        with self.assertRaises(Exception):
+            with self.bdd.transaccion() as c:
+                c.ejecutar("INSERT INTO RegistroSimple (id, valor) VALUES (1, 'uno')")
+                c.ejecutar("INSERT INTO RegistroSimple (id, valor) VALUES (2, 'dos')")
+                c.ejecutar("INSERT INTO RegistroSimple (id, valor) VALUES (1, 'dup')")  # PK duplicada
+        self.assertEqual(self._contar(), 0)   # las tres revertidas
+
+    def test_conexion_reutilizable_tras_rollback(self):
+        # Tras un rollback, la misma instancia sigue sirviendo transacciones nuevas.
+        with self.assertRaises(RuntimeError):
+            with self.bdd.transaccion() as c:
+                c.INSERT("RegistroSimple", valor="fallida").ejecutar()
+                raise RuntimeError("abortar")
+        with self.bdd.transaccion() as c:
+            c.INSERT("RegistroSimple", valor="ok").ejecutar()
+        self.assertEqual(self._contar(), 1)
+
+    def test_select_dentro_de_transaccion(self):
+        # Lecturas dentro de la transacción ven las escrituras previas de la misma tx.
+        with self.bdd.transaccion() as c:
+            c.INSERT("RegistroSimple", valor="leido").ejecutar()
+            c.SELECT("RegistroSimple", ["valor"]).WHERE(valor="leido").ejecutar()
+            fila = c.devolverUnResultado()
+            self.assertEqual(fila["valor"], "leido")
+        self.assertEqual(self._contar(), 1)
+
+    def test_reconexion_no_ocurre_dentro_de_transaccion(self):
+        # Dentro de una transacción, un ErrorBDD re-lanza en vez de reconectar
+        # (reconectar abortaría la transacción silenciosamente).
+        from chastack_bdd.errores import ErrorBDD
+
+        class CursorRoto:
+            def execute(self, *a, **k):
+                raise ErrorBDD("conexión caída simulada")
+            lastrowid = None
+
+        class ConexionInerte:
+            def commit(self): pass
+            def rollback(self): pass
+
+        bdd = BaseDeDatos_MySQL()
+        setattr(bdd, "_BaseDeDatos_MySQL__cursor", CursorRoto())
+        setattr(bdd, "_BaseDeDatos_MySQL__conexion", ConexionInerte())
+        setattr(bdd, "_BaseDeDatos_MySQL__en_transaccion", True)
+        # Con el guard, el ErrorBDD se re-lanza tal cual. Sin el guard, intentaría
+        # reconectar (desconectar sobre el cursor falso) y propagaría OTRO error,
+        # así que assertRaises(ErrorBDD) distingue ambos comportamientos.
+        # Se prueban las DOS sobrecargas de ejecutar: str crudo y builder.
+        with self.assertRaises(ErrorBDD):
+            bdd.ejecutar("INSERT INTO RegistroSimple (valor) VALUES ('x')")   # sobrecarga str
+        with self.assertRaises(ErrorBDD):
+            bdd.INSERT("RegistroSimple", valor="x").ejecutar()                # sobrecarga builder
+
 
 # REFACTORIZAR: (Hernán) Segregar pruebas en submódulos.
 if __name__ == "__main__":
